@@ -1,6 +1,6 @@
 # Hello World!
 
-This is the repository for my GitHub Community Profile.
+This is the repository for my GitHub Profile.
 
 Also contains global configurations and assets for my other repositories.
 
