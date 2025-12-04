@@ -6,6 +6,6 @@ Also contains global configurations and assets for my other repositories.
 
 ## 🌐 Links:
 
-Community Profile : [`https://github.com/dasharadhan`](https://github.com/dasharadhan)
+GitHub Profile : [`https://github.com/dasharadhan`](https://github.com/dasharadhan)
 
 Website : [`https://dasharadhan.github.io`](https://dasharadhan.github.io)
