@@ -6,6 +6,7 @@ on:
       skip_hooks:
         description: "Comma-separated list of pre-commit hooks to skip"
         required: false
+        type: string
         default: ""
 
 jobs:
