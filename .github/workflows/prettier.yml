@@ -1,0 +1,76 @@
+name: prettier
+
+on:
+  workflow_call:
+    inputs:
+      run_on_push:
+        description: "Run workflow on push events"
+        required: false
+        default: true
+        type: boolean
+      run_on_pr:
+        description: "Run workflow on pull request events"
+        required: false
+        default: true
+        type: boolean
+      run_on_schedule:
+        description: "Run workflow on schedule"
+        required: false
+        default: false
+        type: boolean
+      schedule_cron:
+        description: "Cron schedule expression (used if run_on_schedule is true)"
+        required: false
+        default: "0 0 * * 0"
+        type: string
+      files:
+        description: "Optional files or glob patterns to check"
+        required: false
+        default: "**/*.{js,ts,jsx,tsx,json,css,scss,md,html,yml}"
+
+jobs:
+  prettier:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Configure git diff settings
+        run: git config --global diff.trustExitCode true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies if package.json exists
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          fi
+
+      - name: Run Prettier
+        run: npx prettier --write "${{ inputs.files }}"
+
+      - name: Commit formatted files
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b format-pr-${GITHUB_RUN_ID}
+          git add .
+          git diff --quiet || git commit -m "chore: auto-format with prettier"
+        continue-on-error: true
+
+      - name: Create Pull Request
+        if: steps.commit.outcome == 'success'
+        run: |
+          gh auth setup-git
+          gh pr create \
+            --title "chore: auto-format with prettier" \
+            --body "This PR was automatically created by the Prettier workflow." \
+            --head "format-pr-${GITHUB_RUN_ID}" \
+            --base main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
