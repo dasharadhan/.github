@@ -6,7 +6,7 @@ on:
       files:
         description: "Optional files or glob patterns to check"
         required: false
-        default: "**/*.{js,ts,jsx,tsx,json,css,scss,md,html,yml}"
+        default: "**/*.{js,ts,jsx,tsx,json,css,scss,md,html,yml,yaml}"
         type: string
       pr_number:
         description: "Pull Request number (optional, used for branch naming)"
