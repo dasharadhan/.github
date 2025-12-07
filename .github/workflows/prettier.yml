@@ -3,31 +3,15 @@ name: prettier
 on:
   workflow_call:
     inputs:
-      run_on_push:
-        description: "Run workflow on push events"
-        required: false
-        default: true
-        type: boolean
-      run_on_pr:
-        description: "Run workflow on pull request events"
-        required: false
-        default: true
-        type: boolean
-      run_on_schedule:
-        description: "Run workflow on schedule"
-        required: false
-        default: false
-        type: boolean
-      schedule_cron:
-        description: "Cron schedule expression (used if run_on_schedule is true)"
-        required: false
-        default: "0 0 * * 0"
-        type: string
       files:
         description: "Optional files or glob patterns to check"
         required: false
         default: "**/*.{js,ts,jsx,tsx,json,css,scss,md,html,yml}"
         type: string
+      pr_number:
+        description: "Pull Request number (optional, used for branch naming)"
+        required: false
+        type: number
 
 jobs:
   prettier:
@@ -36,6 +20,8 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure git diff settings
         run: git config --global diff.trustExitCode true
@@ -44,6 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
 
       - name: Install dependencies if package.json exists
         run: |
@@ -54,24 +41,61 @@ jobs:
       - name: Run Prettier
         run: npx prettier --write "${{ inputs.files }}"
 
+      - name: Determine branch name
+        id: branch
+        run: |
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            echo "name=chore/prettier-pr-${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=chore/prettier-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout / create branch
+        run: |
+          if git rev-parse --verify "${{ steps.branch.outputs.name }}" >/dev/null 2>&1; then
+            git checkout "${{ steps.branch.outputs.name }}"
+          else
+            git checkout -b "${{ steps.branch.outputs.name }}"
+
       - name: Commit formatted files
         id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b format-pr-${GITHUB_RUN_ID}
           git add .
-          git diff --quiet || git commit -m "chore: auto-format with prettier"
-        continue-on-error: true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: auto-format with prettier [skip ci]"
+            echo "committed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push branch
+        if: steps.commit.outputs.committed == 'true'
+        run: git push origin "${{ steps.branch.outputs.name }}" --force
+
+      - name: Check if PR exists
+        id: pr-check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh pr list --head "${{ steps.branch.outputs.name }}" --json number --jq ".[].number" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create Pull Request
-        if: steps.commit.outcome == 'success'
+        if: steps.commit.outputs.committed == 'true' && steps.pr-check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh auth setup-git
           gh pr create \
             --title "chore: auto-format with prettier" \
             --body "This PR was automatically created by the Prettier workflow." \
-            --head "format-pr-${GITHUB_RUN_ID}" \
+            --head "${{ steps.branch.outputs.name }}" \
             --base main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update existing PR
+        if: steps.commit.outputs.committed == 'true' && steps.pr-check.outputs.exists == 'true'
+        run: echo "Updated existing Prettier PR with new formatting changes."
