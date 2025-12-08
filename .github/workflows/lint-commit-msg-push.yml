@@ -1,0 +1,37 @@
+name: lint-commit-msg-push
+
+on:
+  workflow_call:
+    inputs:
+      base_ref:
+        description: "Base branch of the PR (e.g., main)"
+        required: true
+        type: string
+      head_sha:
+        description: "SHA of the last commit in the push"
+        required: true
+        type: string
+
+jobs:
+  lint-commit-msg-push:
+    runs-on: ubuntu-latest
+
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Install gitlint
+        run: pip install gitlint
+
+      - name: Lint all commits in push
+        run: |
+          gitlint --commits ${{ inputs.base_ref }}..${{ inputs.head_sha }}

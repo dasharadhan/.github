@@ -1,4 +1,4 @@
-name: lint-commit-msg
+name: lint-commit-msg-pr
 
 on:
   workflow_call:
@@ -25,7 +25,7 @@ on:
         type: string
 
 jobs:
-  lint-commit-msg:
+  lint-commit-msg-pr:
     runs-on: ubuntu-latest
 
     if: |
