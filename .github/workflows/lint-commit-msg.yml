@@ -1,4 +1,4 @@
-name: Lint Commit Messages
+name: lint-commit-msg
 
 on:
   workflow_call:
@@ -34,10 +34,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
