@@ -1,0 +1,76 @@
+name: Lint Commit Messages
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: number
+      base_ref:
+        description: "Base branch of the PR (e.g., main)"
+        required: true
+        type: string
+      merge_method:
+        description: "Merge method of the PR (squash, merge, rebase)"
+        required: true
+        type: string
+      repo:
+        description: "Repository full name (owner/repo)"
+        required: true
+        type: string
+      token:
+        description: "GitHub token"
+        required: true
+        type: string
+
+jobs:
+  lint-commit-msg:
+    runs-on: ubuntu-latest
+
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Install gitlint
+        run: pip install gitlint
+
+      - name: Fetch PR data
+        id: pr
+        env:
+          GH_TOKEN: ${{ inputs.token }}
+          GH_REPO: ${{ inputs.repo }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          pr_json=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json title,headRefOid,mergeCommit -q ".")
+          pr_title=$(echo "$pr_json" | jq -r ".title")
+          pr_head_sha=$(echo "$pr_json" | jq -r ".headRefOid")
+          pr_merge_sha=$(echo "$pr_json" | jq -r ".mergeCommit.oid")
+
+          echo "title=$pr_title" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$pr_head_sha" >> "$GITHUB_OUTPUT"
+          echo "merge_sha=$pr_merge_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Lint PR title (squash merge)
+        if: ${{ inputs.merge_method == 'squash' }}
+        run: |
+          echo "${{ steps.pr.outputs.title }}" | gitlint --msg-filename=- --config .gitlint-pr-title
+
+      - name: Lint merge commit
+        if: ${{ inputs.merge_method == 'merge' }}
+        run: |
+          gitlint --commits ${{ inputs.base_ref }}..${{ github.event.pull_request.merge_commit_sha }}
+
+      - name: Lint all PR commits (rebase merge)
+        if: ${{ inputs.merge_method == 'rebase' }}
+        run: |
+          gitlint --commits ${{ inputs.base_ref }}..${{ github.event.pull_request.head.sha }}
