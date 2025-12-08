@@ -34,16 +34,3 @@ jobs:
 
       - name: Run Prettier
         run: npx prettier --check "${{ inputs.files }}"
-
-      - name: Show Prettier diff
-        if: failure()
-        run: |
-          echo "Prettier formatting differences:"
-          mkdir formatted
-          cp -r . formatted/
-
-          cd formatted
-          npx prettier --write "${{ inputs.files }}"
-          cd ..
-
-          git --no-pager diff --color --no-index . formatted || true
