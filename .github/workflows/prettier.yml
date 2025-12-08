@@ -8,23 +8,18 @@ on:
         required: false
         default: "**/*.{js,ts,jsx,tsx,json,css,scss,md,html,yml,yaml}"
         type: string
-      pr_number:
-        description: "Pull Request number (optional, used for branch naming)"
-        required: false
-        type: number
 
 jobs:
   prettier:
     runs-on: ubuntu-latest
 
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Configure git diff settings
-        run: git config --global diff.trustExitCode true
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -38,63 +33,17 @@ jobs:
           fi
 
       - name: Run Prettier
-        run: npx prettier --write "${{ inputs.files }}"
+        run: npx prettier --check "${{ inputs.files }}"
 
-      - name: Determine branch name
-        id: branch
+      - name: Show Prettier diff
+        if: failure()
         run: |
-          if [ -n "${{ inputs.pr_number }}" ]; then
-            echo "name=chore/prettier-pr-${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=chore/prettier-run-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "Prettier formatting differences:"
+          mkdir formatted
+          cp -r . formatted/
 
-      - name: Checkout / create branch
-        run: |
-          if git rev-parse --verify "${{ steps.branch.outputs.name }}" >/dev/null 2>&1; then
-            git checkout "${{ steps.branch.outputs.name }}"
-          else
-            git checkout -b "${{ steps.branch.outputs.name }}"
+          cd formatted
+          npx prettier --write "${{ inputs.files }}"
+          cd ..
 
-      - name: Commit formatted files
-        id: commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: auto-format with prettier [skip ci]"
-            echo "committed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "committed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Push branch
-        if: steps.commit.outputs.committed == 'true'
-        run: git push origin "${{ steps.branch.outputs.name }}" --force
-
-      - name: Check if PR exists
-        id: pr-check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if gh pr list --head "${{ steps.branch.outputs.name }}" --json number --jq ".[].number" | grep -q .; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create Pull Request
-        if: steps.commit.outputs.committed == 'true' && steps.pr-check.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr create \
-            --title "chore: auto-format with prettier" \
-            --body "This PR was automatically created by the Prettier workflow." \
-            --head "${{ steps.branch.outputs.name }}" \
-            --base main
-
-      - name: Update existing PR
-        if: steps.commit.outputs.committed == 'true' && steps.pr-check.outputs.exists == 'true'
-        run: echo "Updated existing Prettier PR with new formatting changes."
+          git --no-pager diff --color --no-index . formatted || true
