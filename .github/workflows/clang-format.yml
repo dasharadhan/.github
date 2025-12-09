@@ -4,9 +4,9 @@ on:
   workflow_call:
     inputs:
       version:
-        description: "clang-format version (e.g., 17)"
+        description: "clang-format version (e.g., 19)"
         required: false
-        default: "17"
+        default: "19"
         type: string
 
 permissions:
