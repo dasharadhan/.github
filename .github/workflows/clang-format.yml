@@ -1,0 +1,113 @@
+name: clang-format
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "clang-format version (e.g., 17)"
+        required: false
+        default: "17"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write # REQUIRED to comment on PRs
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Skip if triggered by bot (loop prevention)
+        if: ${{ github.actor == 'github-actions[bot]' }}
+        run: echo "Skipping because triggered by bot" && exit 0
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-${{ inputs.version }}
+          ln -s /usr/bin/clang-format-${{ inputs.version }} /usr/local/bin/clang-format
+
+      - name: Install colordiff
+        run: sudo apt-get install -y colordiff
+
+      - name: Run clang-format diff
+        id: clang
+        run: |
+          FILES=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp')
+          FAILED=0
+          echo "" > clang-format.patch
+          echo "" > clang-format.txt
+
+          for file in $FILES; do
+            diff_output=$(clang-format "$file" | diff -u "$file" - || true)
+
+            if [[ -n "$diff_output" ]]; then
+              echo "::error file=$file::clang-format issues detected"
+              echo -e "$diff_output" | colordiff
+
+              # Save raw diff without ANSI color for PR comment
+              echo -e "$diff_output" >> clang-format.txt
+
+              # Save patch version
+              clang-format "$file" | diff -u "$file" - >> clang-format.patch
+
+              FAILED=1
+            fi
+          done
+
+          echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
+          exit $FAILED
+
+      - name: Upload patch artifact
+        if: steps.clang.outputs.failed == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-format.patch
+          path: clang-format.patch
+
+      - name: Comment on PR with diff
+        if: ${{ steps.clang.outputs.failed == '1' && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const diffText = fs.readFileSync("clang-format.txt", "utf8");
+
+            if (diffText.trim().length === 0) return;
+
+            const body =
+              `#### clang-format issues detected\n` +
+              `A formatting patch is available as an artifact.\n\n` +
+              `#### Diff:\n` +
+              `\`\`\`diff\n${diffText}\n\`\`\``;
+
+            // Delete old bot comments to avoid spam
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number
+            });
+
+            for (const c of comments) {
+              if (c.user.type === "Bot" && c.body.includes("clang-format issues")) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id
+                });
+              }
+            }
+
+            // Add updated comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
