@@ -22,10 +22,6 @@ on:
         description: "Repository full name (owner/repo)"
         required: true
         type: string
-      token:
-        description: "GitHub token"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -54,7 +50,7 @@ jobs:
       - name: Fetch PR data
         id: pr
         env:
-          GH_TOKEN: ${{ inputs.token }}
+          GH_TOKEN: ${{ secrets.token }}
           GH_REPO: ${{ inputs.repo }}
           PR_NUMBER: ${{ inputs.pr_number }}
         run: |
