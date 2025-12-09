@@ -63,7 +63,7 @@ jobs:
               echo -e "$diff_output" >> clang-format.txt
 
               # Save patch
-              clang-format "$file" | diff -u "$file" - >> clang-format.patch
+              echo -e "$diff_output" >> clang-format.patch
 
               FAILED=1
             fi
@@ -78,52 +78,128 @@ jobs:
           name: clang-format.patch
           path: clang-format.patch
 
-      - name: Comment on PR with diff
-        if: ${{ steps.clang.outputs.failed == '1' && github.event_name == 'pull_request' }}
+      - name: Post inline review comments on PR
+        if: steps.clang.outputs.failed == '1' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
-          script: |
-            const fs = require("fs");
-            const diffText = fs.readFileSync("clang-format.txt", "utf8");
+          github-token: ${{ github.token }}
+        script: |
+          const fs = require('fs');
 
-            if (diffText.trim().length === 0) {
-              return;
-            }
+          // 1. Read diff
+          const diffText = fs.readFileSync('clang-format.patch', 'utf8').trim();
+          if (!diffText) return;
 
-            const body =
-              `#### clang-format issues detected\n` +
-              `A formatting patch has been uploaded as an artifact.\n\n` +
-              `#### Diff:\n` +
-              `\`\`\`diff\n${diffText}\n\`\`\``;
+          // 2. Split per file using --- headers (diff -u format)
+          const fileChunks = diffText
+            .split(/^--- /m)
+            .slice(1)
+            .map(chunk => '--- ' + chunk);
 
-            // Delete previous comments made by this workflow
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number
-            });
+          // 3. Collect new review comments
+          const rawComments = [];
 
-            for (const comment of comments) {
-              if (
-                comment.user.type === "Bot" &&
-                comment.body &&
-                comment.body.includes("clang-format issues detected")
-              ) {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: comment.id
-                });
+          for (const chunk of fileChunks) {
+            const lines = chunk.split('\n');
+
+            // Extract filename
+            const matchFile = lines[0].match(/^--- ["']?([^"\t]+)["']?\t/);
+            if (!matchFile) continue;
+
+            const filename = matchFile[1];
+            let currentLine = 0;
+            let hunkLines = [];
+
+            for (const line of lines) {
+              const hunkMatch = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+              if (hunkMatch) {
+                // Close previous hunk if needed
+                if (hunkLines.length > 0) {
+                  rawComments.push({
+                    path: filename,
+                    line: hunkLines[0].line,
+                    body: "clang-format changes:\n```\n" +
+                          hunkLines.map(l => l.text).join("\n") +
+                          "\n```"
+                  });
+                }
+                // Start new hunk
+                hunkLines = [];
+                currentLine = parseInt(hunkMatch[1]);
+                continue;
               }
+
+              // Detect changed lines (+ but not +++)
+              if (line.startsWith('+') && !line.startsWith('+++')) {
+                hunkLines.push({
+                  line: currentLine,
+                  text: line
+                });
+                currentLine++;
+                continue;
+              }
+
+              // Context line: end of a hunk, flush
+              if (hunkLines.length > 0 && !line.startsWith('-')) {
+                rawComments.push({
+                  path: filename,
+                  line: hunkLines[0].line,
+                  body: "clang-format changes:\n```\n" +
+                        hunkLines.map(l => l.text).join("\n") +
+                        "\n```"
+                });
+                hunkLines = [];
+              }
+
+              if (!line.startsWith('-')) currentLine++;
             }
 
-            // Post new updated comment
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body
-            });
+            // Flush final hunk
+            if (hunkLines.length > 0) {
+              rawComments.push({
+                path: filename,
+                line: hunkLines[0].line,
+                body: "clang-format changes:\n```\n" +
+                      hunkLines.map(l => l.text).join("\n") +
+                      "\n```"
+              });
+            }
+          }
+
+          if (rawComments.length === 0) return;
+
+          // 4. Avoid duplicate comments:
+          const existing = await github.rest.pulls.listReviewComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number
+          });
+
+          const uniqueComments = rawComments.filter(c =>
+            !existing.data.some(e =>
+              e.path === c.path &&
+              e.line === c.line &&
+              e.body.trim() === c.body.trim()
+            )
+          );
+
+          if (uniqueComments.length === 0) return;
+
+          // 5. Create single review ("ALL")
+          await github.rest.pulls.createReview({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number,
+            event: 'REQUEST_CHANGES',
+            body:
+              "### clang-format detected issues\n" +
+              "Inline comments were added. Please fix the formatting.\n\n" +
+              "You can apply the formatting locally:\n" +
+              "```bash\nclang-format -i <files>\n```\n" +
+              "Or apply the patch in the CI artifacts.\n\n" +
+              "See: `.clang-format` configuration.",
+            comments: uniqueComments
+          });
 
       - name: Fail job if necessary
         if: steps.clang.outputs.failed == '1'
