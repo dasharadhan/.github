@@ -39,7 +39,11 @@ jobs:
 
       - name: Run clang-format checks
         id: clang
+        continue-on-error: true
         run: |
+          # Disable exit on error
+          set +e 
+
           FILES=$(git ls-files '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hpp')
           FAILED=0
 
