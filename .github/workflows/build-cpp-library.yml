@@ -1,0 +1,117 @@
+name: Build C++ Library
+
+on:
+  workflow_call:
+    inputs:
+      token:
+        description: "Optional token to clone private repositories"
+        required: false
+        type: string
+      repo_url:
+        description: "Git URL of the library"
+        required: true
+        type: string
+      name:
+        description: "Short name of the library (used in cache paths)"
+        required: true
+        type: string
+      commit:
+        description: "Optional fixed commit SHA. If not provided, uses latest from branch"
+        required: false
+        type: string
+      branch:
+        description: "Branch to track if commit is not specified"
+        required: false
+        default: "main"
+        type: string
+      cmake_options:
+        description: "Optional CMake options"
+        required: false
+        type: string
+        default: ""
+      workspace_path:
+        description: "Path relative to repo root to clone/build the library"
+        required: false
+        default: "external/ci"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-library:
+    runs-on: ubuntu-latest
+
+    outputs:
+      install_path: ${{ steps.set-output.outputs.install_path }}
+      build_path: ${{ steps.set-output.outputs.build_path }}
+      commit_sha: ${{ steps.set-output.outputs.commit_sha }}
+
+    steps:
+      - name: Setup workspace directory
+        run: |
+          mkdir -p ${{ inputs.workspace_path }}
+
+      - name: Clone library
+        run: |
+          cd ${{ inputs.workspace_path }}
+          if [ ! -d "${{ inputs.name }}" ]; then
+            if [ -n "${{ inputs.token }}" ]; then
+              git clone https://x-access-token:${{ inputs.token }}@${{ inputs.repo_url#https:// }} ${{ inputs.name }}
+            else
+              git clone ${{ inputs.repo_url }} ${{ inputs.name }}
+            fi
+          fi
+          cd ${{ inputs.name }}
+          git fetch origin ${{ inputs.branch }}
+
+          if [ -n "${{ inputs.commit }}" ]; then
+            git checkout ${{ inputs.commit }}
+          else
+            git checkout ${{ inputs.branch }}
+            git pull origin ${{ inputs.branch }}
+          fi
+
+          # Save commit SHA for caching
+          LIB_SHA=$(git rev-parse HEAD)
+          echo "LIB_SHA=$LIB_SHA" >> $GITHUB_ENV
+
+      - name: Cache build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ inputs.workspace_path }}/${{ inputs.name }}/install
+          key: ${{ runner.os }}-${{ inputs.name }}-${{ env.LIB_SHA }}
+
+      - name: Configure CMake
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd "${{ inputs.workspace_path }}/${{ inputs.name }}"
+          mkdir -p build && cd build
+          cmake .. \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            ${{ inputs.cmake_options }}
+
+      - name: Build library
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd "${{ inputs.workspace_path }}/${{ inputs.name }}/build"
+          cmake --build . --parallel
+
+      - name: Install library
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          INSTALL_DIR="${{ inputs.workspace_path }}/${{ inputs.name }}/install"
+          mkdir -p "$INSTALL_DIR"
+          cd "${{ inputs.workspace_path }}/${{ inputs.name }}/build"
+          cmake --install . --prefix "$INSTALL_DIR"
+
+      - name: Set outputs
+        id: set-output
+        run: |
+          BUILD_PATH="${{ inputs.workspace_path }}/${{ inputs.name }}/build"
+          INSTALL_PATH="${{ inputs.workspace_path }}/${{ inputs.name }}/install"
+
+          echo "build_path=$BUILD_PATH" >> "$GITHUB_OUTPUT"
+          echo "install_path=$INSTALL_PATH" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${{ env.LIB_SHA }}" >> "$GITHUB_OUTPUT"
