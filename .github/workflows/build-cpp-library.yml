@@ -57,8 +57,10 @@ jobs:
           cd ${{ inputs.workspace_path }}
           if [ ! -d "${{ inputs.name }}" ]; then
             if [ -n "${{ inputs.token }}" ]; then
+              echo "Cloning repository"
               git clone https://x-access-token:${{ inputs.token }}@${{ inputs.repo_url#https:// }} ${{ inputs.name }}
             else
+              echo "Cloning public repository"
               git clone ${{ inputs.repo_url }} ${{ inputs.name }}
             fi
           fi
