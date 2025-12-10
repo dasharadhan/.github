@@ -54,7 +54,7 @@ jobs:
       # - name: Install run-clang-tidy.py
       #   run: |
       #     pip install --upgrade pip
-      #     wget -q https://raw.githubusercontent.com/llvm/llvm-project/main/clang/tools/clang-tidy/run-clang-tidy.py -O run-clang-tidy.py
+      #     wget -q https://raw.githubusercontent.com/llvm/llvm-project/refs/heads/main/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -O run-clang-tidy.py
       #     chmod +x run-clang-tidy.py
 
       - name: Configure CMake
@@ -72,7 +72,7 @@ jobs:
           set +e
           FAILED=0
           echo "" > clang-tidy.txt
-          python run-clang-tidy.py -p build -j $(nproc) --warnings-as-errors='*' 2>&1 | tee clang-tidy.txt
+          run-clang-tidy -p build -j $(nproc) --warnings-as-errors='*' 2>&1 | tee clang-tidy.txt
           if grep -q 'error:' clang-tidy.txt; then
             FAILED=1
           fi
