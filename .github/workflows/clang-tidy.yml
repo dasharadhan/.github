@@ -72,7 +72,7 @@ jobs:
           set +e
           FAILED=0
           echo "" > clang-tidy.txt
-          run-clang-tidy -p build -j $(nproc) --warnings-as-errors='*' 2>&1 | tee clang-tidy.txt
+          run-clang-tidy -p build -j $(nproc) -header-filter='.*' -warnings-as-errors='*' -quiet 2>&1 | tee clang-tidy.txt
           if grep -q 'error:' clang-tidy.txt; then
             FAILED=1
           fi
