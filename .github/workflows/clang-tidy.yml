@@ -3,6 +3,11 @@ name: clang-tidy
 on:
   workflow_call:
     inputs:
+      install_build_tools:
+        description: "Flag to indicate if clang-tidy, build-essential should be installed or not"
+        required: false
+        default: true
+        type: boolean
       clang_version:
         description: "clang-tidy version (e.g., 19)"
         required: false
@@ -18,6 +23,26 @@ on:
         required: false
         default: ""
         type: string
+      header_filter:
+        description: "Regex used to filter header files to output diagnostics from (-header-filter)"
+        required: false
+        default: ""
+        type: string
+      source_filter:
+        description: "Regex used to filter source files from compilation database (-source-filter)"
+        required: false
+        default: ""
+        type: string
+      warnings_as_errors:
+        description: "List of warnings to be upgraded as errors (-warnings-as-errors)"
+        required: false
+        default: ""
+        type: string
+      quiet_mode:
+        description: "Run clang-tidy in quiet mode (-quiet)"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -44,24 +69,18 @@ jobs:
           python-version: ${{ inputs.python_version }}
 
       - name: Install build tools
+        if: inputs.install_build_tools == true
         run: |
           sudo apt-get update 
           sudo apt-get install -y cmake build-essential
           sudo apt-get install -y clang-tidy-${{ inputs.clang_version }}
           ln -sf /usr/bin/clang-tidy-${{ inputs.clang_version }} /usr/local/bin/clang-tidy
 
-      # Install run-clang-tidy.py
-      # - name: Install run-clang-tidy.py
-      #   run: |
-      #     pip install --upgrade pip
-      #     wget -q https://raw.githubusercontent.com/llvm/llvm-project/refs/heads/main/clang-tools-extra/clang-tidy/tool/run-clang-tidy.py -O run-clang-tidy.py
-      #     chmod +x run-clang-tidy.py
-
       - name: Configure CMake
         run: |
           mkdir -p build
           cd build
-          if [ -n "${{ inputs.cmake_prefix_paths }}" ]; then
+          if [[ -n "${{ inputs.cmake_prefix_paths }}" ]]; then
             export CMAKE_PREFIX_PATH=${{ inputs.cmake_prefix_paths }}
           fi
           cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
@@ -72,7 +91,35 @@ jobs:
           set +e
           FAILED=0
           echo "" > clang-tidy.txt
-          run-clang-tidy -p build -j $(nproc) -header-filter='.*' -warnings-as-errors='*' -quiet 2>&1 | tee clang-tidy.txt
+
+          CLANG_TIDY_CMD="run-clang-tidy -p build -j $(nproc)"
+
+          QUIET_FLAG=""
+          if [[ "${{ inputs.quiet_mode }}" == "true" ]]; then
+            QUIET_FLAG="-quiet"
+            CLANG_TIDY_CMD="$CLANG_TIDY_CMD $QUIET_FLAG"
+          fi
+
+          WARNINGS_AS_ERRORS=""
+          if [[ -n "${{ inputs.warnings_as_errors }}" ]]; then
+            WARNINGS_AS_ERRORS="-warnings-as-errors '${{ inputs.warnings_as_errors }}'"
+            CLANG_TIDY_CMD="$CLANG_TIDY_CMD $WARNINGS_AS_ERRORS"
+          fi
+
+          HEADER_FILTER=""
+          if [[ -n "${{ inputs.header_filter }}" ]]; then
+            HEADER_FILTER="-header-filter '${{ inputs.header_filter }}'"
+            CLANG_TIDY_CMD="$CLANG_TIDY_CMD $HEADER_FILTER"
+          fi
+
+          SOURCE_FILTER=""
+          if [[ -n "${{ inputs.source_filter }}" ]]; then
+            SOURCE_FILTER="-source-filter '${{ inputs.source_filter }}'"
+            CLANG_TIDY_CMD="$CLANG_TIDY_CMD $SOURCE_FILTER"
+          fi
+
+          echo "Running $CLANG_TIDY_CMD"
+          $CLANG_TIDY_CMD 2>&1 | tee clang-tidy.txt
           if grep -q 'error:' clang-tidy.txt; then
             FAILED=1
           fi
