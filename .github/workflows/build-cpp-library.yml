@@ -80,7 +80,7 @@ jobs:
 
       - name: Cache build
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ inputs.workspace_path }}/${{ inputs.name }}/install
           key: ${{ runner.os }}-${{ inputs.name }}-${{ env.LIB_SHA }}

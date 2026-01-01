@@ -58,7 +58,7 @@ jobs:
         run: echo "Skipping CI loop" && exit 0
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -127,14 +127,14 @@ jobs:
 
       - name: Upload clang-tidy report
         if: steps.tidy.outputs.failed == '1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: clang-tidy-report
           path: clang-tidy.txt
 
       - name: Comment on PR
         if: steps.tidy.outputs.failed == '1' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ github.token }}
           script: |
